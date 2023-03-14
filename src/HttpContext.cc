@@ -127,7 +127,7 @@ int HttpContext::sendAll()
             write_file_fd_ = nullptr;
     }
 
-    return 0;
+    return write_index_;
 }
 
 void HttpContext::handleStateRecvHead()
@@ -149,6 +149,13 @@ void HttpContext::handleStateRecvHead()
             auto content_length = parser_.getContentLength();
             if (content_length)
             {
+                if (parser_.method() == HttpMethod::TRACE)
+                {
+                    setErrorResponse(HttpStatusCode::BAD_REQUEST);
+                    if (epollModOneShot(epoll_fd_, EPOLLOUT /*|EPOLLET*/, socket_->fd()) == -1)
+                        LOG_ERROR("Epoll oneshot event EPOLLOUT modify failed for fd(", socket_->fd(), "), reason: ", logErrStr(errno));
+                    return;
+                }
                 // LOG_DEBUG("Request content-length > 0, change state_ to State::RECEIVE_BODY");
                 body_buffer_.reserve(content_length);
                 if (parse_res < read_buffer_.size())
@@ -242,8 +249,8 @@ void HttpContext::doRead()
 
 void HttpContext::doWrite()
 {
-    LOG_DEBUG("HttpContext doWrite(), this = ", (long)this);
     const int retval = sendAll();
+    LOG_DEBUG("HttpContext doWrite(), retval = ", retval,", this = ", (long)this);
     if (retval == -1)
     {
         if (epollDel(epoll_fd_, socket_->fd()) == -1)
@@ -309,6 +316,77 @@ static std::string lexicalCast(T num)
     return res;
 }
 
+void HttpContext::handleMethodGetAndHead()
+{
+    std::string full_url = std::string(root_dir_).append(parser_.url());
+    if (parser_.url() == "/")
+        full_url.append("index.html");
+
+    if (!hasFile(full_url))
+    {
+        LOG_DEBUG("Cannot find file, url = ", full_url);
+        setErrorResponse(HttpStatusCode::NOT_FOUND);
+        return;
+    }
+
+    if (access(full_url.data(), R_OK) == -1)
+    {
+        if (errno == EACCES)
+            LOG_DEBUG("No read permission on file ", full_url);
+        else
+            LOG_WARNING("Failed to call access with parameter(", full_url, "), reason: ", logErrStr(errno));
+        setErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
+        return;
+    }
+
+    const int file_fd = ::open(full_url.data(), O_RDONLY);
+    if (file_fd == -1)
+    {
+        LOG_WARNING("Failed to call open with parameter(", full_url, "), reason: ", logErrStr(errno));
+        setErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
+        return;
+    }
+
+    struct stat file_stat;
+    explicit_bzero(&file_stat, sizeof(file_stat));
+    if (fstat(file_fd, &file_stat) == -1)
+    {
+        LOG_WARNING("Failed to call fstat, reason: ", logErrStr(errno));
+        setErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
+        return;
+    }
+
+    if (parser_.method() == HttpMethod::GET)
+    {
+        write_file_fd_ = std::make_unique<std::pair<FdHolder, std::size_t>>(file_fd, file_stat.st_size);
+        write_file_offset_ = 0;
+    }
+
+    auto builder = HttpResponseBuilder()
+                       .addHeader("Content-Length", lexicalCast(file_stat.st_size))
+                       .addHeader("Content-Type", parser_.mime().data());
+    if (parser_.isKeepAlive())
+        builder.addHeader("Connection", "keep-alive");
+
+    write_buffer_ = builder.build();
+    write_index_ = 0;
+    state_ = State::SEND;
+    // LOG_DEBUG("Set response header: ", write_buffer_);
+}
+
+void HttpContext::handleMethodTrace()
+{
+    auto builder = HttpResponseBuilder()
+                       .addHeader("Content-Type", "message/http")
+                       .addHeader("Content-Length", std::to_string(parser_.headLength()))
+                       .addHeader("Connection", "close")
+                       .setBody(read_buffer_.substr(0, parser_.headLength()));
+
+    write_buffer_ = builder.build();
+    write_index_ = 0;
+    state_ = State::SEND;
+}
+
 void HttpContext::handleRequest()
 {
     // LOG_DEBUG("Handle request, method=",
@@ -323,62 +401,9 @@ void HttpContext::handleRequest()
     }
 
     if (parser_.method() == HttpMethod::GET || parser_.method() == HttpMethod::HEAD)
-    {
-        std::string full_url = std::string(root_dir_).append(parser_.url());
-        if (parser_.url() == "/")
-            full_url.append("index.html");
-
-        if (!hasFile(full_url))
-        {
-            LOG_DEBUG("Cannot find file, url = ", full_url);
-            setErrorResponse(HttpStatusCode::NOT_FOUND);
-            return;
-        }
-
-        if (access(full_url.data(), R_OK) == -1)
-        {
-            if (errno == EACCES)
-                LOG_DEBUG("No read permission on file ", full_url);
-            else
-                LOG_WARNING("Failed to call access with parameter(", full_url, "), reason: ", logErrStr(errno));
-            setErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
-
-        const int file_fd = ::open(full_url.data(), O_RDONLY);
-        if (file_fd == -1)
-        {
-            LOG_WARNING("Failed to call open with parameter(", full_url, "), reason: ", logErrStr(errno));
-            setErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
-
-        struct stat file_stat;
-        explicit_bzero(&file_stat, sizeof(file_stat));
-        if (fstat(file_fd, &file_stat) == -1)
-        {
-            LOG_WARNING("Failed to call fstat, reason: ", logErrStr(errno));
-            setErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
-
-        if (parser_.method() == HttpMethod::GET)
-        {
-            write_file_fd_ = std::make_unique<std::pair<FdHolder, std::size_t>>(file_fd, file_stat.st_size);
-            write_file_offset_ = 0;
-        }
-
-        auto builder = HttpResponseBuilder()
-                           .addHeader("Content-Length", lexicalCast(file_stat.st_size))
-                           .addHeader("Content-Type", parser_.mime().data());
-        if (parser_.isKeepAlive())
-            builder.addHeader("Connection", "keep-alive");
-
-        write_buffer_ = builder.build();
-        write_index_ = 0;
-        state_ = State::SEND;
-        // LOG_DEBUG("Set response header: ", write_buffer_);
-    }
+        handleMethodGetAndHead();
+    else if (parser_.method() == HttpMethod::TRACE)
+        handleMethodTrace();
     else
     {
         LOG_DEBUG("Http method ", kHttpMethodStr[static_cast<int>(parser_.method())], " is not supported.");

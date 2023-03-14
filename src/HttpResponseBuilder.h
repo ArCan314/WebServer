@@ -13,6 +13,7 @@ private:
     HttpVersion version_{HttpVersion::HTTP11};
     HttpStatusCode status_code_{HttpStatusCode::OK};
     std::string reason_{};
+    std::string body_{};
     std::vector<std::string> headers_;
     int headers_len_{0};
 public:
@@ -21,5 +22,6 @@ public:
     HttpResponseBuilder &setStatusCode(HttpStatusCode status) noexcept;
     HttpResponseBuilder &setReason(std::string reason) noexcept;
     HttpResponseBuilder &addHeader(std::string name, std::string value);
+    HttpResponseBuilder &setBody(std::string body);
     std::string build();
 };

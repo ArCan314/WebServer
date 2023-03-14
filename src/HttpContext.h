@@ -107,7 +107,11 @@ private:
 
     void handleStateRecvHead();
     void handleStateRecvBody();
+
     void handleRequest();
+    void handleMethodGetAndHead();
+    void handleMethodTrace();
+    
     void reset();
     void setErrorResponse(HttpStatusCode);
 };

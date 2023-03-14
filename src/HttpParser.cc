@@ -62,6 +62,8 @@ int HttpParser::parse(std::string request)
     // end of http request header
     if (!ignoreCRLF(raw_, pos))
         return false;
+
+    head_length_ = pos;
     return pos;
 }
 

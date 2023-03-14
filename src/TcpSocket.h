@@ -6,6 +6,8 @@
 #include <inttypes.h>
 #include <endian.h>
 
+#include <sys/socket.h>
+
 #include "./util/Noncopyable.h"
 #include "./util/utils.h"
 #include "./Logger.h"
@@ -14,7 +16,7 @@ class TcpSocket : NonCopyable
 {
 public:
     using FdType = int;
-    static constexpr int kListenBackLogSize = 5;
+    static constexpr int kListenBackLogSize = SOMAXCONN;
     static constexpr int kDefaultLingerSecond = 5;
 
     TcpSocket();

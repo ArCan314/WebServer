@@ -19,6 +19,7 @@ private:
     std::string_view mime_;
     std::unordered_map<std::string_view, std::string_view> headers_;
     std::string raw_;
+    int head_length_{};
 
     static bool isNumber(std::string_view str)
     {
@@ -35,12 +36,16 @@ public:
     auto mime() const noexcept { return mime_; }
     auto query() const noexcept { return query_; }
     bool hasQuery() const noexcept { return query_.size() > 0; }
+    const auto &headers() const noexcept { return headers_; }
+    auto headLength() const noexcept { return head_length_; }
+
     bool isKeepAlive() const
     {
         if (const auto iter = headers_.find("Connection"); iter != headers_.end() && iter->second != "close")
             return true;
         return false;
     }
+
     long long getContentLength() const
     {
         try
@@ -55,5 +60,4 @@ public:
             return 0;
         }
     }
-    const auto &headers() const noexcept { return headers_; }
 };

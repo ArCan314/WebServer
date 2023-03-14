@@ -58,13 +58,19 @@ HttpResponseBuilder &HttpResponseBuilder::addHeader(std::string name, std::strin
     return *this;
 }
 
+HttpResponseBuilder &HttpResponseBuilder::setBody(std::string body)
+{
+    body_.swap(body);
+    return *this;
+}
+
 static inline void pushStatusCode(std::string &str, HttpStatusCode code)
 {
     const int prev_size = str.size();
     int num = static_cast<int>(code);
     while (num)
     {
-        str.push_back(num % 10);
+        str.push_back('0' + num % 10);
         num /= 10;
     }
 
