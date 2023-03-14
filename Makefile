@@ -12,7 +12,7 @@ CXXFLAGS += -lpthread
 CXXFLAGS += -Og -g -flto
 
 server: src/main.cc Logger.o HttpResponseBuilder.o HttpResponseBuilder.o TcpSocket.o WebServer.o Logger.o HttpContext.o HttpParser.o Mime.o
-	$(CXX) -o server  $^ $(CXXFLAGS)
+	$(CXX) -o server.out  $^ $(CXXFLAGS)
 
 Logger.o: src/Logger.cc
 	$(CXX) -o Logger.o $^ -c $(CXXFLAGS)
@@ -36,4 +36,4 @@ Mime.o: src/Mime.cc
 	$(CXX) -o Mime.o $^ -c $(CXXFLAGS)
 
 clean:
-	rm HttpResponseBuilder.o TcpSocket.o WebServer.o Logger.o HttpContext.o HttpParser.o Mime.o server
+	rm HttpResponseBuilder.o TcpSocket.o WebServer.o Logger.o HttpContext.o HttpParser.o Mime.o server.out
