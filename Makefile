@@ -11,7 +11,7 @@ CXXFLAGS += -Wall -Wextra -Wno-sign-compare
 CXXFLAGS += -lpthread
 CXXFLAGS += -Og -g -flto
 
-server: src/main.cc Logger.o HttpResponseBuilder.o HttpResponseBuilder.o TcpSocket.o WebServer.o Logger.o HttpContext.o HttpParser.o Mime.o
+server: src/main.cc Logger.o HttpResponseBuilder.o HttpResponseBuilder.o TcpSocket.o WebServer.o Logger.o HttpContext.o HttpParser.o Mime.o DefaultErrorPages.o
 	$(CXX) -o server.out  $^ $(CXXFLAGS)
 
 Logger.o: src/Logger.cc
@@ -35,5 +35,8 @@ WebServer.o: src/WebServer.cc
 Mime.o: src/Mime.cc
 	$(CXX) -o Mime.o $^ -c $(CXXFLAGS)
 
+DefaultErrorPages.o: src/DefaultErrorPages.cc
+	$(CXX) -o DefaultErrorPages.o $^ -c $(CXXFLAGS)
+
 clean:
-	rm HttpResponseBuilder.o TcpSocket.o WebServer.o Logger.o HttpContext.o HttpParser.o Mime.o server.out
+	rm DefaultErrorPages.o HttpResponseBuilder.o TcpSocket.o WebServer.o Logger.o HttpContext.o HttpParser.o Mime.o server.out

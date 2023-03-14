@@ -4,6 +4,7 @@
 
 #include "./HttpTypes.h"
 #include "./HttpResponseBuilder.h"
+#include "./DefaultErrorPages.h"
 
 static const std::unordered_map<HttpStatusCode, const char *> kDefaultReason =
     {
@@ -28,7 +29,8 @@ static const std::unordered_map<HttpStatusCode, const char *> kDefaultReason =
 
 HttpResponseBuilder::HttpResponseBuilder(HttpStatusCode status_code, HttpVersion version) noexcept
     : version_(version),
-      status_code_(status_code)
+      status_code_(status_code),
+      body_((static_cast<uint32_t>(status_code) >= 400u) ? getDefaultErrorPage(status_code) : "")
 {
 }
 
@@ -104,5 +106,6 @@ std::string HttpResponseBuilder::build()
     }
 
     res.append("\r\n", 2);
+    res.append(body_);
     return res;
 }

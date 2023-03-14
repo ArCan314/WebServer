@@ -23,9 +23,12 @@
 #include "./TcpSocket.h"
 #include "./Logger.h"
 
-void HttpContext::setErrorResponse(HttpStatusCode error_status_code)
+void HttpContext::setDefaultErrorResponse(HttpStatusCode error_status_code)
 {
-    write_buffer_ = HttpResponseBuilder(error_status_code).build();
+    auto builder = HttpResponseBuilder(error_status_code);
+    builder.addHeader("Content-Length", std::to_string(builder.bodySize()));
+
+    write_buffer_ = builder.build();
     write_index_ = 0;
     state_ = State::SEND_ERROR;
 }
@@ -142,7 +145,7 @@ void HttpContext::handleStateRecvHead()
         if (!parse_res)
         {
             LOG_DEBUG("Failed to parse request");
-            setErrorResponse(HttpStatusCode::BAD_REQUEST);
+            setDefaultErrorResponse(HttpStatusCode::BAD_REQUEST);
         }
         else
         {
@@ -151,7 +154,7 @@ void HttpContext::handleStateRecvHead()
             {
                 if (parser_.method() == HttpMethod::TRACE)
                 {
-                    setErrorResponse(HttpStatusCode::BAD_REQUEST);
+                    setDefaultErrorResponse(HttpStatusCode::BAD_REQUEST);
                     if (epollModOneShot(epoll_fd_, EPOLLOUT /*|EPOLLET*/, socket_->fd()) == -1)
                         LOG_ERROR("Epoll oneshot event EPOLLOUT modify failed for fd(", socket_->fd(), "), reason: ", logErrStr(errno));
                     return;
@@ -178,7 +181,7 @@ void HttpContext::handleStateRecvHead()
     }
     else if (read_res == HttpReadResult::ERROR)
     {
-        setErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
+        setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
         if (epollModOneShot(epoll_fd_, EPOLLOUT /*|EPOLLET*/, socket_->fd()) == -1)
         {
             LOG_ERROR("Epoll oneshot event EPOLLOUT modify failed for fd(", socket_->fd(), "), reason: ", logErrStr(errno));
@@ -212,7 +215,7 @@ void HttpContext::handleStateRecvBody()
     }
     else if (read_res == HttpReadResult::ERROR)
     {
-        setErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
+        setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
         // if (epollModOneShot(epoll_fd_, EPOLLOUT, socket_->fd()) == -1)
         // {
         //     LOG_ERROR("Epoll oneshot event EPOLLOUT modify failed for fd(", socket_->fd(), "), reason: ", logErrStr(errno));
@@ -325,7 +328,7 @@ void HttpContext::handleMethodGetAndHead()
     if (!hasFile(full_url))
     {
         LOG_DEBUG("Cannot find file, url = ", full_url);
-        setErrorResponse(HttpStatusCode::NOT_FOUND);
+        setDefaultErrorResponse(HttpStatusCode::NOT_FOUND);
         return;
     }
 
@@ -335,7 +338,7 @@ void HttpContext::handleMethodGetAndHead()
             LOG_DEBUG("No read permission on file ", full_url);
         else
             LOG_WARNING("Failed to call access with parameter(", full_url, "), reason: ", logErrStr(errno));
-        setErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
+        setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
         return;
     }
 
@@ -343,7 +346,7 @@ void HttpContext::handleMethodGetAndHead()
     if (file_fd == -1)
     {
         LOG_WARNING("Failed to call open with parameter(", full_url, "), reason: ", logErrStr(errno));
-        setErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
+        setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
         return;
     }
 
@@ -352,7 +355,7 @@ void HttpContext::handleMethodGetAndHead()
     if (fstat(file_fd, &file_stat) == -1)
     {
         LOG_WARNING("Failed to call fstat, reason: ", logErrStr(errno));
-        setErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
+        setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
         return;
     }
 
@@ -396,7 +399,7 @@ void HttpContext::handleRequest()
     if (static_cast<int>(parser_.version()) > static_cast<int>(HttpVersion::HTTP11))
     {
         LOG_DEBUG("Http version ", static_cast<int>(parser_.version()), " is not supported");
-        setErrorResponse(HttpStatusCode::HTTP_VERSION_NOT_SUPPORTED);
+        setDefaultErrorResponse(HttpStatusCode::HTTP_VERSION_NOT_SUPPORTED);
         return;
     }
 
@@ -407,7 +410,7 @@ void HttpContext::handleRequest()
     else
     {
         LOG_DEBUG("Http method ", kHttpMethodStr[static_cast<int>(parser_.method())], " is not supported.");
-        setErrorResponse(HttpStatusCode::NOT_IMPLEMENTED);
+        setDefaultErrorResponse(HttpStatusCode::NOT_IMPLEMENTED);
         return;
     }
 }

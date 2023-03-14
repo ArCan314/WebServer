@@ -23,5 +23,6 @@ public:
     HttpResponseBuilder &setReason(std::string reason) noexcept;
     HttpResponseBuilder &addHeader(std::string name, std::string value);
     HttpResponseBuilder &setBody(std::string body);
+    auto bodySize() const noexcept { return body_.size(); }
     std::string build();
 };

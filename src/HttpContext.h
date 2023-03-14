@@ -113,5 +113,5 @@ private:
     void handleMethodTrace();
     
     void reset();
-    void setErrorResponse(HttpStatusCode);
+    void setDefaultErrorResponse(HttpStatusCode);
 };
