@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <fstream>
 #include <sstream>
@@ -21,6 +22,8 @@ enum class LogLevel : int
     WARNING = 2,
     ERROR = 3,
 };
+
+std::string_view getLogLevelStr(LogLevel level);
 
 class Logger : public Singleton<Logger>
 {
@@ -146,6 +149,7 @@ inline std::string logErrStr(int err_no)
             LOG_##level(msg, ##__VA_ARGS__); \
     } while (0)
 
+// LOG macros that check return value
 #define LOGIF_BDEBUG(x, msg, ...) ___LOGIF(x, false, DEBUG, msg, ##__VA_ARGS__)
 #define LOGIF_BINFO(x, msg, ...) ___LOGIF(x, false, INFO, msg, ##__VA_ARGS__)
 #define LOGIF_BWARNING(x, msg, ...) ___LOGIF(x, false, WARNING, msg, ##__VA_ARGS__)
@@ -154,3 +158,9 @@ inline std::string logErrStr(int err_no)
 #define LOGIF_PINFO(x, msg, ...) ___LOGIF(x, -1, INFO, msg, ##__VA_ARGS__)
 #define LOGIF_PWARNING(x, msg, ...) ___LOGIF(x, -1, WARNING, msg, ##__VA_ARGS__)
 #define LOGIF_PERROR(x, msg, ...) ___LOGIF(x, -1, ERROR, msg, ##__VA_ARGS__)
+
+#define LOG_STDERR(msg, ...)                                \
+    do                                                      \
+    {                                                       \
+        std::cerr << logstr(msg, __VA_ARGS__) << std::endl; \
+    } while (0)

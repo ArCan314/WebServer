@@ -2,6 +2,7 @@
 #include <memory>
 #include <functional>
 #include <shared_mutex>
+#include <filesystem>
 
 #include <cassert>
 #include <cinttypes>
@@ -57,7 +58,6 @@ static void acceptorEventLoop(int epfd, const std::vector<FdHolder> &worker_epfd
         if (event_count == 0)
             continue;
 
-        const auto &event = events[0];
         while (true) // loop until no connection can be accepted
         {
             int client_fd = listen_socket.accept();
@@ -111,7 +111,7 @@ void WebServer::acceptorLoop(std::string_view ip, uint16_t port)
     acceptorEventLoop(epfd, worker_epfds_, listen_socket);
 }
 
-void WebServer::workerLoop(int epfd, int pool_size)
+void WebServer::workerLoop(int epfd)
 {
     const int timerfd = timerfd_create(CLOCK_REALTIME, 0);
     if (timerfd == -1)
@@ -129,7 +129,7 @@ void WebServer::workerLoop(int epfd, int pool_size)
     std::mutex contexts_mtx;
     TimerQueue timers;
     ThreadPool pool;
-    pool.start(pool_size);
+    pool.start(worker_pool_size_);
 
     const auto eraseContext = [&contexts, &contexts_mtx, &contexts_is_valid, &timers](int fd)
     {
@@ -172,7 +172,7 @@ void WebServer::workerLoop(int epfd, int pool_size)
                     epfd,
                     [&eraseContext](int fd)
                     { eraseContext(fd); },
-                    this->root_dir_,
+                    this->root_path_,
                     timer_id);
             else
                 contexts[fd] = std::make_unique<HttpContext>(
@@ -180,10 +180,10 @@ void WebServer::workerLoop(int epfd, int pool_size)
                     epfd,
                     [&eraseContext](int fd)
                     { eraseContext(fd); },
-                    this->root_dir_,
+                    this->root_path_,
                     timer_id);
             contexts_is_valid[fd] = true;
-            
+
             LOG_DEBUG("Set contexts[", fd, "], ptr = ", long(contexts[fd].get()), ", contexts.size() = ", contexts.size());
             return contexts[fd].get();
         }
@@ -284,17 +284,24 @@ void WebServer::workerLoop(int epfd, int pool_size)
     pool.stop();
 }
 
-bool WebServer::start(std::string_view ip, uint16_t port, int acceptor_count, int worker_count, int worker_pool_size)
+bool WebServer::start()
 {
-    LOG_INFO("Start WebServer on (", ip, ", ", port, ")");
-    if (!hasDir(root_dir_))
+    if (!Logger::instance().init(log_path_, log_level_))
     {
-        LOG_ERROR("Cannot find root dir(", root_dir_, ") or root dir is not a directory");
+        LOG_STDERR("Failed to initialize logger with root_dir: ", log_path_, " and log_level: ", getLogLevelStr(log_level_));
         return false;
     }
+    LOG_INFO("Start WebServer");
 
-    workers_.start(worker_count);
-    for (int i = 0; i < worker_count; i++)
+    if (!hasDir(root_path_))
+    {
+        LOG_ERROR("Cannot find root dir(", root_path_, ") or root dir is not a directory");
+        return false;
+    }
+    root_path_ = std::filesystem::canonical(root_path_);
+
+    workers_.start(worker_size_);
+    for (int i = 0; i < worker_size_; i++)
     {
         const int worker_epfd = epoll_create(1);
         if (worker_epfd == -1)
@@ -303,11 +310,11 @@ bool WebServer::start(std::string_view ip, uint16_t port, int acceptor_count, in
             return false;
         }
         worker_epfds_.emplace_back(worker_epfd);
-        workers_.run([this, worker_epfd, worker_pool_size]()
-                     { this->workerLoop(worker_epfd, worker_pool_size); });
+        workers_.run([this, worker_epfd]()
+                     { this->workerLoop(worker_epfd); });
     }
 
-    for (int i = 0; i < acceptor_count; i++)
+    for (const auto &[ip, port] : listen_addresses_)
         acceptors_.emplace_back(&WebServer::acceptorLoop, this, ip, port);
 
     for (auto &thread : acceptors_)
@@ -315,9 +322,4 @@ bool WebServer::start(std::string_view ip, uint16_t port, int acceptor_count, in
 
     workers_.stop();
     return true;
-}
-
-bool WebServer::start(uint16_t port)
-{
-    return start("0.0.0.0", port);
 }

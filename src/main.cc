@@ -10,11 +10,17 @@ int main()
 {
     std::cout << get_current_dir_name() << std::endl;
     std::signal(SIGPIPE, SIG_IGN);
-    WebServer server("./root", LogLevel::WARNING);
 
-    static constexpr int kPort = 12345;
-    static constexpr int kEventLoopThreadCount = 3;
-    server.start("0.0.0.0", kPort, 3, 3, 4);
+    WebServer server{};
+    server.addListenAddress("0.0.0.0", 12345, 3)
+        .setLogPath("./server.log")
+        .setLogLevel(LogLevel::INFO)
+        .setRootPath("./root")
+        .setWorkerThreadNum(3)
+        .setWorkerPoolSize(4);
+
+    std::cout << "server thread total = " << server.getTotalThreadNum() << std::endl;
+    server.start();
 
     return 0;
 }

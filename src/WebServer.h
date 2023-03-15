@@ -27,25 +27,67 @@
 class WebServer : NonCopyable
 {
 public:
-    explicit WebServer(
-        std::string root_dir = "./root",
-        LogLevel log_level = LogLevel::WARNING,
-        int max_thread_num = hardwareConcurrency()) : root_dir_(std::move(root_dir))
+    WebServer() = default;
+    WebServer &setLogPath(std::string path)
     {
-        if (!Logger::instance().init("./server.log", log_level))
-            std::cerr << "Failed to initialize logger with params: "
-                      << "./server.log, LogLevel::DEBUG" << std::endl;
+        log_path_ = std::move(path);
+        return *this;
     }
-    bool start(std::string_view ip, uint16_t port, int acceptor_count = 1, int worker_count = 2, int worker_pool_size = 4);
-    bool start(uint16_t port);
+
+    WebServer &setRootPath(std::string path)
+    {
+        root_path_ = std::move(path);
+        return *this;
+    }
+
+    WebServer &setLogLevel(LogLevel level)
+    {
+        log_level_ = level;
+        return *this;
+    }
+
+    WebServer &addListenAddress(const std::string &ip, uint16_t port, int count = 1)
+    {
+        for (int i = 0; i < count; i++)
+            listen_addresses_.emplace_back(ip, port);
+        return *this;
+    }
+
+    WebServer &setWorkerThreadNum(int size)
+    {
+        worker_size_ = size;
+        return *this;
+    }
+
+    WebServer &setWorkerPoolSize(int size)
+    {
+        worker_pool_size_ = size;
+        return *this;
+    }
+
+    int getTotalThreadNum() const noexcept
+    {
+        return listen_addresses_.size() + worker_size_ * worker_pool_size_ + worker_size_;
+    }
+
+    bool start();
 
 private:
     std::vector<std::thread> acceptors_;
 
     ThreadPool workers_;
+    int worker_size_{3};
+    int worker_pool_size_{4};
+
     std::vector<FdHolder> worker_epfds_; 
-    const std::string root_dir_;
+
+    std::string log_path_{"./server.log"};
+    LogLevel log_level_{LogLevel::WARNING};
+
+    std::string root_path_{"./root"};
+
+    std::vector<std::pair<std::string, uint16_t>> listen_addresses_;
 
     void acceptorLoop(std::string_view ip, uint16_t port);
-    void workerLoop(int epfd, int pool_size);
+    void workerLoop(int epfd);
 };

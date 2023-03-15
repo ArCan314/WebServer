@@ -10,13 +10,26 @@
 
 #include "./Logger.h"
 
-static constexpr const char *kLevelStr[] = 
+static constexpr const char *kLevelPromptStr[] = 
 {
     "[DEBUG  ]",
     "[INFO   ]",
     "[WARNING]",
     "[ERROR  ]",                    
 };
+
+static constexpr const char *kLogLevelStr[] = {
+    "LogLevel::DEBUG",
+    "LogLevel::INFO",
+    "LogLevel::WARNING",
+    "LogLevel::ERROR",
+};
+
+std::string_view getLogLevelStr(LogLevel level)
+{
+    static_assert(std::size(kLogLevelStr) == static_cast<int>(LogLevel::ERROR) + 1);
+    return kLogLevelStr[static_cast<int>(level)];
+}
 
 bool Logger::init(std::string log_path, LogLevel level)
 {
@@ -69,7 +82,7 @@ static std::string getTimeStr()
 void Logger::log(const std::string &msg, LogLevel level, const char *file, int line, const char *func)
 {
     // [level][tid][time]:(file:line#func) msg
-    std::string log_str(kLevelStr[static_cast<int>(level)]);
+    std::string log_str(kLevelPromptStr[static_cast<int>(level)]);
     
     log_str.push_back('[');
     log_str.append(std::to_string(gettid()));
