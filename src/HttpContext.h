@@ -113,5 +113,5 @@ private:
     void handleMethodTrace();
     
     void reset();
-    void setDefaultErrorResponse(HttpStatusCode);
+    void setDefaultErrorResponse(HttpStatusCode, const std::string = "");
 };
