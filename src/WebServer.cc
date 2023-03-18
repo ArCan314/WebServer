@@ -37,8 +37,46 @@ static int setTimerFd(int fd, long loop_ms)
     return timerfd_settime(fd, 0, &timerspec, nullptr);
 }
 
-static void acceptorEventLoop(int epfd, const std::vector<FdHolder> &worker_epfds, const TcpSocket &listen_socket)
+static void acceptorEventLoopBlock(const std::vector<FdHolder> &worker_epfds, const TcpSocket &listen_socket)
 {
+    int worker_epfd_ind = 0;
+    if (!listen_socket.setNonBlocking(false))
+    {
+        LOG_ERROR("failed to set non blocking for listen socket, fd = ", listen_socket.fd());
+        return;
+    }
+
+    while (true)
+    {
+        int client_fd = listen_socket.accept();
+        if (client_fd == -1)
+            break;
+
+        if (epollAddOneShot(worker_epfds[worker_epfd_ind++].fd(), EPOLLIN | EPOLLRDHUP /*|EPOLLET*/, client_fd) == -1)
+        {
+            LOG_ERROR("Failed to add oneshot epoll event EPOLLIN|EPOLLRDHUP for socket(fd=", client_fd, "), reason: ", logErrStr(errno));
+            return;
+        }
+        worker_epfd_ind %= worker_epfds.size();
+    }
+}
+
+static void acceptorEventLoopEpoll(const std::vector<FdHolder> &worker_epfds, const TcpSocket &listen_socket)
+{
+    const int epfd = epoll_create(1);
+    if (epfd == -1)
+    {
+        LOG_ERROR("Failed to create epoll fd, reason: ", logErrStr(errno));
+    }
+
+    if (epollAdd(epfd, EPOLLIN | EPOLLET, listen_socket.fd()) == -1)
+    {
+        LOG_ERROR("Failed to add epoll event EPOLLIN on socket(fd=", listen_socket.fd(), ")");
+        return;
+    }
+
+    const FdHolder epfd_guard(epfd);
+
     static constexpr int kMaxEventArrSize = 1;
     std::array<epoll_event, kMaxEventArrSize> events;
     int worker_epfd_ind = 0;
@@ -95,20 +133,10 @@ void WebServer::acceptorLoop(std::string_view ip, uint16_t port)
         return;
     }
 
-    const int epfd = epoll_create(1);
-    if (epfd == -1)
-    {
-        LOG_ERROR("Failed to create epoll fd, reason: ", logErrStr(errno));
-    }
-
-    if (epollAdd(epfd, EPOLLIN | EPOLLET, listen_socket.fd()) == -1)
-    {
-        LOG_ERROR("Failed to add epoll event EPOLLIN on socket(fd=", listen_socket.fd(), ")");
-        return;
-    }
-
-    const FdHolder epfd_guard(epfd);
-    acceptorEventLoop(epfd, worker_epfds_, listen_socket);
+    if (is_acceptor_using_epoll)
+        acceptorEventLoopEpoll(worker_epfds_, listen_socket);
+    else
+        acceptorEventLoopBlock(worker_epfds_, listen_socket);
 }
 
 void WebServer::workerLoop(int epfd)

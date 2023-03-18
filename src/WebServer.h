@@ -46,6 +46,12 @@ public:
         return *this;
     }
 
+    WebServer &setAcceptorUsingEpoll(bool is_using_epoll)
+    {
+        is_acceptor_using_epoll = is_using_epoll;
+        return *this;
+    }
+
     WebServer &addListenAddress(const std::string &ip, uint16_t port, int count = 1)
     {
         for (int i = 0; i < count; i++)
@@ -74,6 +80,7 @@ public:
 
 private:
     std::vector<std::thread> acceptors_;
+    bool is_acceptor_using_epoll;
 
     ThreadPool workers_;
     int worker_size_{3};

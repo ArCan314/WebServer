@@ -17,8 +17,9 @@ int main()
         .setLogLevel(LogLevel::INFO)
         .setRootPath("./root")
         .setWorkerThreadNum(3)
-        .setWorkerPoolSize(4);
-
+        .setWorkerPoolSize(4)
+        .setAcceptorUsingEpoll(false);
+        
     std::cout << "server thread total = " << server.getTotalThreadNum() << std::endl;
     server.start();
 
