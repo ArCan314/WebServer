@@ -3,7 +3,6 @@
 #include <string>
 #include <string_view>
 #include <iostream>
-#include <thread>
 
 #include <string.h>
 

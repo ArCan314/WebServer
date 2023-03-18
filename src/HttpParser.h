@@ -7,25 +7,9 @@
 #include <cctype>
 
 #include "./HttpTypes.h"
-#include "./Logger.h"
 
 class HttpParser
 {
-private:
-    HttpMethod method_{HttpMethod::NOT_SET};
-    HttpVersion version_{HttpVersion::NOT_SET};
-    std::string_view url_;
-    std::string_view query_;
-    std::string_view mime_;
-    std::unordered_map<std::string_view, std::string_view> headers_;
-    std::string raw_;
-    int head_length_{};
-
-    static bool isNumber(std::string_view str)
-    {
-        return std::all_of(str.begin(), str.end(), [](int ch) { return std::isdigit(ch); });
-    }
-
 public:
     HttpParser() = default;
     int parse(std::string request);
@@ -39,25 +23,16 @@ public:
     const auto &headers() const noexcept { return headers_; }
     auto headLength() const noexcept { return head_length_; }
 
-    bool isKeepAlive() const
-    {
-        if (const auto iter = headers_.find("Connection"); iter != headers_.end() && iter->second != "close")
-            return true;
-        return false;
-    }
+    bool isKeepAlive() const;
+    long long getContentLength() const;
 
-    long long getContentLength() const
-    {
-        try
-        {
-            if (const auto iter = headers_.find("Content-Length"); iter != headers_.end() && isNumber(iter->second))
-                return std::atoll(iter->second.data());
-            return 0;
-        }
-        catch (const std::exception &e)
-        {
-            LOG_WARNING("Exception raised, what = ", e.what());
-            return 0;
-        }
-    }
+private:
+    HttpMethod method_{HttpMethod::NOT_SET};
+    HttpVersion version_{HttpVersion::NOT_SET};
+    std::string_view url_;
+    std::string_view query_;
+    std::string_view mime_;
+    std::unordered_map<std::string_view, std::string_view> headers_;
+    std::string raw_;
+    int head_length_{};
 };

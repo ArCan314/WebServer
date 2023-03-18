@@ -1,4 +1,3 @@
-#include "./TcpSocket.h"
 
 #include <memory>
 #include <string_view>
@@ -10,6 +9,7 @@
 #include <arpa/inet.h>
 
 #include "./util/utils.h"
+#include "./TcpSocket.h"
 #include "./Logger.h"
 
 TcpSocket::TcpSocket()

@@ -16,7 +16,6 @@
 #include "./HttpContext.h"
 #include "./util/utils.h"
 #include "./util/FdHolder.h"
-#include "./util/Noncopyable.h"
 #include "./Logger.h"
 
 static timespec getTimeSpec(long ms)

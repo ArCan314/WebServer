@@ -1,9 +1,9 @@
 #pragma once
 
+#include <array>
+#include <functional>
 #include <memory>
 #include <string>
-#include <functional>
-#include <array>
 
 #include <inttypes.h>
 
@@ -23,36 +23,21 @@ public:
                          int epoll_fd,
                          std::function<void(int)> remove_connection_callback,
                          std::string_view root_dir,
-                         TimerQueue::TimerId timer_id)
-        : socket_(std::move(socket)), epoll_fd_(epoll_fd),
-          remove_connection_callback_(std::move(remove_connection_callback)),
-          root_dir_(root_dir), timer_id_(timer_id)
-    {
-        LOG_DEBUG("Construct HttpContext ", (long)this);
-    }
+                         TimerQueue::TimerId timer_id);
 
     [[nodiscard]] TimerQueue::TimerId getTimerId() const noexcept { return timer_id_; }
+
     void doRead();
     void doWrite();
+
     ~HttpContext() { LOG_DEBUG("Destroy HttpContext ", (long)this); }
+
     void setContext(std::unique_ptr<TcpSocket> &&socket,
                     int epoll_fd,
                     std::function<void(int)> remove_connection_callback,
                     std::string_view root_dir,
-                    TimerQueue::TimerId timer_id)
-    {
-        socket_ = std::move(socket);
-        epoll_fd_ = epoll_fd;
-        remove_connection_callback_ = std::move(remove_connection_callback);
-        root_dir_ = root_dir;
-        timer_id_ = timer_id;
-        reset();
-    }
-
-    void resetContext()
-    {
-        socket_ = nullptr;
-    }
+                    TimerQueue::TimerId timer_id);
+    void resetContext() { socket_ = nullptr; }
 
 private:
     static constexpr int kReserveBufferSize = 1024;
@@ -113,7 +98,7 @@ private:
     void handleRequest();
     void handleMethodGetAndHead();
     void handleMethodTrace();
-    
+
     void reset();
     void setDefaultErrorResponse(HttpStatusCode, const std::string = "", bool is_method_head = false);
 };

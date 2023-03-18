@@ -5,7 +5,6 @@
 #include <mutex>
 #include <optional>
 #include <atomic>
-#include <functional>
 #include <type_traits>
 
 template <typename T>

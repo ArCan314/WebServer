@@ -3,7 +3,6 @@
 #include <unistd.h>
 
 #include "./Noncopyable.h"
-#include "./utils.h"
 #include "../Logger.h"
 
 class FdHolder : NonCopyable

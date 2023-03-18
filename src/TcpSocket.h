@@ -1,6 +1,6 @@
 #pragma once
+#include <string>
 #include <string_view>
-#include <memory>
 #include <optional>
 
 #include <inttypes.h>
@@ -9,7 +9,6 @@
 #include <sys/socket.h>
 
 #include "./util/Noncopyable.h"
-#include "./util/utils.h"
 #include "./Logger.h"
 
 class TcpSocket : NonCopyable
@@ -20,10 +19,7 @@ public:
     static constexpr int kDefaultLingerSecond = 5;
 
     TcpSocket();
-    explicit TcpSocket(int fd) : fd_(fd)
-    {
-        LOG_DEBUG("Move socket ", fd);
-    }
+    explicit TcpSocket(int fd) : fd_(fd) { LOG_DEBUG("Move socket ", fd); }
 
     [[nodiscard]] int bind(std::string_view ip, int port) const;
     [[nodiscard]] int listen(int backlog = kListenBackLogSize) const;

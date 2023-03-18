@@ -35,7 +35,6 @@ private:
     std::ofstream log_stream_;
 
     void work();
-
 public:
     bool init(std::string log_path, LogLevel level);
     void log(const std::string &msg, LogLevel level, const char *file, int line);

@@ -2,7 +2,6 @@
 #include <string>
 #include <string_view>
 #include <functional>
-#include <filesystem>
 
 #include <cerrno>
 #include <cstring>
@@ -29,24 +28,88 @@
 #include "./Mime.h"
 #include "./DefaultErrorPages.h"
 
-void HttpContext::setDefaultErrorResponse(HttpStatusCode error_status_code, const std::string body, bool is_method_head)
+HttpContext::HttpContext(std::unique_ptr<TcpSocket> &&socket,
+                         int epoll_fd,
+                         std::function<void(int)> remove_connection_callback,
+                         std::string_view root_dir,
+                         TimerQueue::TimerId timer_id)
+    : socket_(std::move(socket)), epoll_fd_(epoll_fd),
+      remove_connection_callback_(std::move(remove_connection_callback)),
+      root_dir_(root_dir), timer_id_(timer_id)
 {
-    auto builder = response_builder_.setStatusCode(error_status_code);
+    LOG_DEBUG("Construct HttpContext ", (long)this);
+}
 
-    if (!is_method_head)
-        builder.setDefaultErrorPage(error_status_code);
-
-    if (body.size())
-        builder.setBody(getErrorPageWithExtraMsg(error_status_code, body));
-    builder.addHeader("Content-Length", lexicalCast(builder.bodySize()))
-           .addHeader("Content-Type", getMime("html").data());
-
-    if (is_method_head)
-        write_buffer_ = builder.buildNoBodyOnce();
+void HttpContext::doRead()
+{
+    LOG_DEBUG("HttpContext doRead(), this = ", (long)this);
+    if (state_ == State::RECEIVE_HEAD)
+        handleStateRecvHead();
+    else if (state_ == State::RECEIVE_BODY)
+        handleStateRecvBody();
     else
-        write_buffer_ = builder.buildOnce();
-    write_index_ = 0;
-    state_ = State::SEND_ERROR;
+        LOG_WARNING("Unhandled state: ", static_cast<int>(state_));
+}
+
+void HttpContext::doWrite()
+{
+    const int retval = sendAll();
+    LOG_DEBUG("HttpContext doWrite(), retval = ", retval, ", this = ", (long)this);
+    if (retval == -1)
+    {
+        if (epollDel(epoll_fd_, socket_->fd()) == -1)
+            LOG_ERROR("Epoll event delete failed for fd(", socket_->fd(), "), reason: ", logErrStr(errno));
+        remove_connection_callback_(socket_->fd());
+        return;
+    }
+
+    if (write_index_ != write_buffer_.size() || write_file_fd_)
+    {
+        // if (epollModOneShot(epoll_fd_, EPOLLOUT, socket_->fd()) == -1)
+        // {
+        //     LOG_ERROR("Epoll oneshot event EPOLLOUT modify failed for fd(", socket_->fd(), "), reason: ", logErrStr(errno));
+        //     remove_connection_callback_(socket_->fd());
+        // }
+        if (epollModOneShot(epoll_fd_, EPOLLOUT /*|EPOLLET*/, socket_->fd()) == -1)
+        {
+            LOG_ERROR("Epoll oneshot event EPOLLOUT modify failed for fd(", socket_->fd(), "), reason: ", logErrStr(errno));
+            remove_connection_callback_(socket_->fd());
+        }
+    }
+    else
+    {
+        if (parser_.isKeepAlive() && state_ != State::SEND_ERROR)
+        {
+            reset();
+            // if (epollModOneShot(epoll_fd_, EPOLLIN, socket_->fd()) == -1)
+            if (epollModOneShot(epoll_fd_, EPOLLIN /*|EPOLLET*/, socket_->fd()) == -1)
+            {
+                LOG_ERROR("Epoll oneshot event EPOLLIN modify failed for fd(", socket_->fd(), "), reason: ", logErrStr(errno));
+                remove_connection_callback_(socket_->fd());
+            }
+        }
+        else
+        {
+            state_ = State::CLOSE;
+            if (epollDel(epoll_fd_, socket_->fd()) == -1)
+                LOG_ERROR("Epoll event delete failed for fd(", socket_->fd(), "), reason: ", logErrStr(errno));
+            remove_connection_callback_(socket_->fd());
+        }
+    }
+}
+
+void HttpContext::setContext(std::unique_ptr<TcpSocket> &&socket,
+                             int epoll_fd,
+                             std::function<void(int)> remove_connection_callback,
+                             std::string_view root_dir,
+                             TimerQueue::TimerId timer_id)
+{
+    socket_ = std::move(socket);
+    epoll_fd_ = epoll_fd;
+    remove_connection_callback_ = std::move(remove_connection_callback);
+    root_dir_ = root_dir;
+    timer_id_ = timer_id;
+    reset();
 }
 
 int HttpContext::__recv(std::string &read_buf)
@@ -255,64 +318,30 @@ void HttpContext::handleStateRecvBody()
     }
 }
 
-void HttpContext::doRead()
+void HttpContext::handleRequest()
 {
-    LOG_DEBUG("HttpContext doRead(), this = ", (long)this);
-    if (state_ == State::RECEIVE_HEAD)
-        handleStateRecvHead();
-    else if (state_ == State::RECEIVE_BODY)
-        handleStateRecvBody();
-    else
-        LOG_WARNING("Unhandled state: ", static_cast<int>(state_));
-}
+    // LOG_DEBUG("Handle request, method=",
+    //           kHttpMethodStr[static_cast<int>(parser_.method())],
+    //           ", version=HTTP", static_cast<int>(parser_.version()), ", url=", parser_.url());
 
-void HttpContext::doWrite()
-{
-    const int retval = sendAll();
-    LOG_DEBUG("HttpContext doWrite(), retval = ", retval, ", this = ", (long)this);
-    if (retval == -1)
+    if (static_cast<int>(parser_.version()) > static_cast<int>(HttpVersion::HTTP11))
     {
-        if (epollDel(epoll_fd_, socket_->fd()) == -1)
-            LOG_ERROR("Epoll event delete failed for fd(", socket_->fd(), "), reason: ", logErrStr(errno));
-        remove_connection_callback_(socket_->fd());
+        LOG_DEBUG("Http version ", static_cast<int>(parser_.version()), " is not supported");
+        setDefaultErrorResponse(HttpStatusCode::HTTP_VERSION_NOT_SUPPORTED);
         return;
     }
 
-    if (write_index_ != write_buffer_.size() || write_file_fd_)
-    {
-        // if (epollModOneShot(epoll_fd_, EPOLLOUT, socket_->fd()) == -1)
-        // {
-        //     LOG_ERROR("Epoll oneshot event EPOLLOUT modify failed for fd(", socket_->fd(), "), reason: ", logErrStr(errno));
-        //     remove_connection_callback_(socket_->fd());
-        // }
-        if (epollModOneShot(epoll_fd_, EPOLLOUT /*|EPOLLET*/, socket_->fd()) == -1)
-        {
-            LOG_ERROR("Epoll oneshot event EPOLLOUT modify failed for fd(", socket_->fd(), "), reason: ", logErrStr(errno));
-            remove_connection_callback_(socket_->fd());
-        }
-    }
+    if (parser_.method() == HttpMethod::GET || parser_.method() == HttpMethod::HEAD)
+        handleMethodGetAndHead();
+    else if (parser_.method() == HttpMethod::TRACE)
+        handleMethodTrace();
     else
     {
-        if (parser_.isKeepAlive() && state_ != State::SEND_ERROR)
-        {
-            reset();
-            // if (epollModOneShot(epoll_fd_, EPOLLIN, socket_->fd()) == -1)
-            if (epollModOneShot(epoll_fd_, EPOLLIN /*|EPOLLET*/, socket_->fd()) == -1)
-            {
-                LOG_ERROR("Epoll oneshot event EPOLLIN modify failed for fd(", socket_->fd(), "), reason: ", logErrStr(errno));
-                remove_connection_callback_(socket_->fd());
-            }
-        }
-        else
-        {
-            state_ = State::CLOSE;
-            if (epollDel(epoll_fd_, socket_->fd()) == -1)
-                LOG_ERROR("Epoll event delete failed for fd(", socket_->fd(), "), reason: ", logErrStr(errno));
-            remove_connection_callback_(socket_->fd());
-        }
+        LOG_DEBUG("Http method ", kHttpMethodStr[static_cast<int>(parser_.method())], " is not supported.");
+        setDefaultErrorResponse(HttpStatusCode::NOT_IMPLEMENTED);
+        return;
     }
 }
-
 
 void HttpContext::handleMethodGetAndHead()
 {
@@ -329,12 +358,12 @@ void HttpContext::handleMethodGetAndHead()
         if (save == ENOENT)
         {
             LOG_DEBUG("Cannot find file ", full_url);
-                setDefaultErrorResponse(HttpStatusCode::NOT_FOUND,
-                                        std::string("Cannot open file ")
-                                            .append(parser_.url())
-                                            .append(". ")
-                                            .append(logErrStr(save)),
-                                        parser_.method() == HttpMethod::HEAD);
+            setDefaultErrorResponse(HttpStatusCode::NOT_FOUND,
+                                    std::string("Cannot open file ")
+                                        .append(parser_.url())
+                                        .append(". ")
+                                        .append(logErrStr(save)),
+                                    parser_.method() == HttpMethod::HEAD);
         }
         else
         {
@@ -397,7 +426,7 @@ void HttpContext::handleMethodGetAndHead()
     }
 
     auto builder = response_builder_.addHeader("Content-Length", lexicalCast(file_stat.st_size))
-                                    .addHeader("Content-Type", parser_.mime().data());
+                       .addHeader("Content-Type", parser_.mime().data());
     if (parser_.isKeepAlive())
         builder.addHeader("Connection", "keep-alive");
 
@@ -410,38 +439,13 @@ void HttpContext::handleMethodGetAndHead()
 void HttpContext::handleMethodTrace()
 {
     auto builder = response_builder_.addHeader("Content-Type", "message/http")
-                                    .addHeader("Content-Length", std::to_string(parser_.headLength()))
-                                    .addHeader("Connection", "close")
-                                    .setBody(read_buffer_.substr(0, parser_.headLength()));
+                       .addHeader("Content-Length", std::to_string(parser_.headLength()))
+                       .addHeader("Connection", "close")
+                       .setBody(read_buffer_.substr(0, parser_.headLength()));
 
     write_buffer_ = builder.buildOnce();
     write_index_ = 0;
     state_ = State::SEND;
-}
-
-void HttpContext::handleRequest()
-{
-    // LOG_DEBUG("Handle request, method=",
-    //           kHttpMethodStr[static_cast<int>(parser_.method())],
-    //           ", version=HTTP", static_cast<int>(parser_.version()), ", url=", parser_.url());
-
-    if (static_cast<int>(parser_.version()) > static_cast<int>(HttpVersion::HTTP11))
-    {
-        LOG_DEBUG("Http version ", static_cast<int>(parser_.version()), " is not supported");
-        setDefaultErrorResponse(HttpStatusCode::HTTP_VERSION_NOT_SUPPORTED);
-        return;
-    }
-
-    if (parser_.method() == HttpMethod::GET || parser_.method() == HttpMethod::HEAD)
-        handleMethodGetAndHead();
-    else if (parser_.method() == HttpMethod::TRACE)
-        handleMethodTrace();
-    else
-    {
-        LOG_DEBUG("Http method ", kHttpMethodStr[static_cast<int>(parser_.method())], " is not supported.");
-        setDefaultErrorResponse(HttpStatusCode::NOT_IMPLEMENTED);
-        return;
-    }
 }
 
 void HttpContext::reset()
@@ -458,4 +462,24 @@ void HttpContext::reset()
     write_index_ = 0;
     write_file_fd_ = nullptr;
     write_file_offset_ = 0;
+}
+
+void HttpContext::setDefaultErrorResponse(HttpStatusCode error_status_code, const std::string body, bool is_method_head)
+{
+    auto builder = response_builder_.setStatusCode(error_status_code);
+
+    if (!is_method_head)
+        builder.setDefaultErrorPage(error_status_code);
+
+    if (body.size())
+        builder.setBody(getErrorPageWithExtraMsg(error_status_code, body));
+    builder.addHeader("Content-Length", lexicalCast(builder.bodySize()))
+        .addHeader("Content-Type", getMime("html").data());
+
+    if (is_method_head)
+        write_buffer_ = builder.buildNoBodyOnce();
+    else
+        write_buffer_ = builder.buildOnce();
+    write_index_ = 0;
+    state_ = State::SEND_ERROR;
 }

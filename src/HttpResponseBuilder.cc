@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <unordered_map>
 
 #include <cassert>
@@ -5,6 +6,7 @@
 #include "./HttpTypes.h"
 #include "./HttpResponseBuilder.h"
 #include "./DefaultErrorPages.h"
+#include "./Logger.h"
 
 static const std::unordered_map<HttpStatusCode, const char *> kDefaultReason =
     {

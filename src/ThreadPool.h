@@ -4,7 +4,6 @@
 #include <thread>
 #include <mutex>
 #include <functional>
-#include <algorithm>
 
 #include <unistd.h>
 

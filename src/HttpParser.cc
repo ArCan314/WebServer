@@ -10,6 +10,7 @@
 #include "./HttpTypes.h"
 #include "./HttpParser.h"
 #include "./util/utils.h"
+#include "./Logger.h"
 #include "./Mime.h"
 
 static bool parseMethod(std::string_view req, int &pos, HttpMethod &method);
@@ -19,15 +20,7 @@ static bool parseHeaders(std::string_view req, int &pos, std::unordered_map<std:
 static bool ignoreOneSpace(std::string_view req, int &pos);
 static bool isCRLF(std::string_view req, int pos);
 static bool ignoreCRLF(std::string_view req, int &pos);
-
-void HttpParser::clear()
-{
-    method_ = HttpMethod::NOT_SET;
-    version_ = HttpVersion::NOT_SET;
-    url_ = "";
-    headers_.clear();
-    raw_.clear();
-}
+static bool isNumber(std::string_view str);
 
 int HttpParser::parse(std::string request)
 {
@@ -66,6 +59,37 @@ int HttpParser::parse(std::string request)
 
     head_length_ = pos;
     return pos;
+}
+
+bool HttpParser::isKeepAlive() const
+{
+    if (const auto iter = headers_.find("Connection"); iter != headers_.end() && iter->second != "close")
+        return true;
+    return false;
+}
+
+long long HttpParser::getContentLength() const
+{
+    try
+    {
+        if (const auto iter = headers_.find("Content-Length"); iter != headers_.end() && isNumber(iter->second))
+            return std::atoll(iter->second.data());
+        return 0;
+    }
+    catch (const std::exception &e)
+    {
+        LOG_WARNING("Exception raised, what = ", e.what());
+        return 0;
+    }
+}
+
+void HttpParser::clear()
+{
+    method_ = HttpMethod::NOT_SET;
+    version_ = HttpVersion::NOT_SET;
+    url_ = "";
+    headers_.clear();
+    raw_.clear();
 }
 
 bool parseMethod(std::string_view req, int &pos, HttpMethod &method)
@@ -109,8 +133,8 @@ bool parseMethod(std::string_view req, int &pos, HttpMethod &method)
 bool parseUrl(std::string_view req, int &out_pos, std::string_view &url_out, std::string_view &query, std::string_view &mime)
 {
     // origin-form    = absolute-path [ "?" query ]
-    // query       = *( pchar / "/" / "?" ) The query component is indicated 
-    // by the first question mark ("?") character and terminated by a number 
+    // query       = *( pchar / "/" / "?" ) The query component is indicated
+    // by the first question mark ("?") character and terminated by a number
     // sign ("#") character or by the end of the URI. RFC3986 sec#3.4
 
     const auto space_pos = req.find(' ', out_pos);
@@ -124,7 +148,7 @@ bool parseUrl(std::string_view req, int &out_pos, std::string_view &url_out, std
     url_out = req.substr(out_pos, std::distance(req.begin() + out_pos, question_mark_pos));
 
     int dot_pos = url_out.size() - 1;
-    while (dot_pos >= 0 && url_out[dot_pos] != '/' && url_out[dot_pos]  != '.')
+    while (dot_pos >= 0 && url_out[dot_pos] != '/' && url_out[dot_pos] != '.')
         dot_pos--;
 
     if (dot_pos < 0 || url_out[dot_pos] == '/')
@@ -157,7 +181,7 @@ bool parseVersion(std::string_view req, int &pos, HttpVersion &version)
     return true;
 }
 
-static bool parseHeaders(std::string_view req, int &pos, 
+static bool parseHeaders(std::string_view req, int &pos,
                          std::unordered_map<std::string_view, std::string_view> &headers)
 {
     // rfc7230 sec:3.2
@@ -180,7 +204,7 @@ static bool parseHeaders(std::string_view req, int &pos,
         const int colon_pos = req.find(':', pos);
         if (colon_pos == std::string_view::npos)
             return false;
-        
+
         // TODO: validate field-name
 
         // no whitespace between field-name and colon
@@ -191,11 +215,11 @@ static bool parseHeaders(std::string_view req, int &pos,
         int value_start_pos = colon_pos + 1;
         while (value_start_pos < req.size() && std::isspace(req[value_start_pos]))
             value_start_pos++;
-        
+
         int value_end_pos = next_crlf_pos - 1;
         while (value_end_pos >= value_start_pos && std::isspace(req[value_end_pos]))
             value_end_pos--;
-        
+
         hint = headers.emplace_hint(hint, req.substr(pos, colon_pos - pos), req.substr(value_start_pos, value_end_pos - value_start_pos + 1));
         pos = next_crlf_pos + 2;
     }
@@ -214,7 +238,7 @@ bool ignoreOneSpace(std::string_view req, int &pos)
 
 bool isCRLF(std::string_view req, int pos)
 {
-    return (pos + 1 < req.size() && req[pos] == '\r' && req[pos + 1] == '\n');        
+    return (pos + 1 < req.size() && req[pos] == '\r' && req[pos + 1] == '\n');
 }
 
 bool ignoreCRLF(std::string_view req, int &pos)
@@ -225,4 +249,10 @@ bool ignoreCRLF(std::string_view req, int &pos)
         return true;
     }
     return false;
+}
+
+bool isNumber(std::string_view str)
+{
+    return std::all_of(str.begin(), str.end(), [](int ch)
+                       { return std::isdigit(ch); });
 }
