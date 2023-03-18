@@ -7,6 +7,8 @@
 #include <cerrno>
 #include <cstring>
 #include <cassert>
+#include <climits>
+#include <cstdlib>
 
 #include <sys/socket.h>
 #include <sys/epoll.h>
@@ -328,61 +330,64 @@ static std::string lexicalCast(T num)
 
 void HttpContext::handleMethodGetAndHead()
 {
-    std::error_code err_code;
-    std::filesystem::path full_url = std::string(root_dir_).append(parser_.url());
+    std::string full_url = std::string(root_dir_).append(parser_.url());
+    std::array<char, PATH_MAX> resolved_path;
     if (parser_.url() == "/")
-        full_url /= "index.html";
+        full_url.append("index.html", lengthOfNullEndStr("index.html"));
 
-    full_url = std::filesystem::canonical(full_url, err_code);
-    if (err_code)
+    if (!realpath(full_url.c_str(), resolved_path.data()))
     {
-        if (err_code.value() == ENOENT)
+        int save = errno;
+        if (save == ENOENT)
         {
-            LOG_DEBUG("Cannot find file ", full_url.string(), ", code = ", err_code.value(), ", code.message = ", err_code.message());
-            setDefaultErrorResponse(HttpStatusCode::NOT_FOUND, std::string("Cannot open file ").append(parser_.url()).append(", ").append(err_code.message()));
-            return;
+            LOG_DEBUG("Cannot find file ", full_url);
+            setDefaultErrorResponse(HttpStatusCode::NOT_FOUND,
+                                    std::string("Cannot open file ")
+                                        .append(parser_.url())
+                                        .append(". ")
+                                        .append(logErrStr(save)));
         }
         else
         {
-            LOG_WARNING("Unknown Error, errmsg = ", err_code.message());
-            setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR, err_code.message());
-            return;
+            LOG_WARNING("Unknown Error, errmsg = ", logErrStr(save));
+            setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR, logErrStr(save));
         }
+        return;
     }
 
-    std::string_view full_url_sv(full_url.c_str());
+    std::string_view resolved_path_sv(resolved_path.data());
 
     // check full_url is inside root_dir
-    if (full_url_sv.size() < root_dir_.size() ||
-        !std::equal(root_dir_.begin(), root_dir_.end(), full_url_sv.begin(), full_url_sv.begin() + root_dir_.size()))
+    if (resolved_path_sv.size() < root_dir_.size() ||
+        !std::equal(root_dir_.begin(), root_dir_.end(), resolved_path_sv.begin(), resolved_path_sv.begin() + root_dir_.size()))
     {
-        LOG_INFO("Requested url is not inside root_dir, url = ", full_url_sv, ", root_dir = ", root_dir_);
+        LOG_INFO("Requested url is not inside root_dir, url = ", resolved_path_sv, ", root_dir = ", root_dir_);
         setDefaultErrorResponse(HttpStatusCode::FORBIDDEN);
         return;
     }
 
-    if (!std::filesystem::is_regular_file(full_url))
+    if (!isRegularFile(resolved_path_sv))
     {
-        LOG_DEBUG("Requested url is not regular file, full_url = ", full_url.string());
+        LOG_DEBUG("Requested url is not regular file, full_url = ", resolved_path_sv);
         setDefaultErrorResponse(HttpStatusCode::NOT_FOUND);
         return;
     }
 
     // check has read permission to full_url
-    if (access(full_url_sv.data(), R_OK) == -1)
+    if (access(resolved_path_sv.data(), R_OK) == -1)
     {
         if (errno == EACCES)
-            LOG_DEBUG("No read permission on file ", full_url_sv);
+            LOG_DEBUG("No read permission on file ", resolved_path_sv);
         else
-            LOG_WARNING("Failed to call access with parameter(", full_url_sv, "), reason: ", logErrStr(errno));
+            LOG_WARNING("Failed to call access with parameter(", resolved_path_sv, "), reason: ", logErrStr(errno));
         setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
         return;
     }
 
-    const int file_fd = ::open(full_url_sv.data(), O_RDONLY);
+    const int file_fd = ::open(resolved_path_sv.data(), O_RDONLY);
     if (file_fd == -1)
     {
-        LOG_WARNING("Failed to call open with parameter(", full_url_sv, "), reason: ", logErrStr(errno));
+        LOG_WARNING("Failed to call open with parameter(", resolved_path_sv, "), reason: ", logErrStr(errno));
         setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
         return;
     }

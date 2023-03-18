@@ -56,7 +56,7 @@ inline int hardwareConcurrency()
     return get_nprocs();
 }
 
-[[nodiscard]] inline bool hasFile(std::string_view dir)
+[[nodiscard]] inline bool isRegularFile(std::string_view dir)
 {
     struct stat statbuf;
     explicit_bzero(&statbuf, sizeof(statbuf));
@@ -64,10 +64,19 @@ inline int hardwareConcurrency()
     return stat(dir.data(), &statbuf) != -1 && S_ISREG(statbuf.st_mode);
 }
 
-[[nodiscard]] inline bool hasDir(std::string_view dir)
+[[nodiscard]] inline bool isDir(std::string_view dir)
 {
     struct stat statbuf;
     explicit_bzero(&statbuf, sizeof(statbuf));
 
     return stat(dir.data(), &statbuf) != -1 && S_ISDIR(statbuf.st_mode);
 }
+
+template <std::size_t Size>
+static constexpr std::size_t lengthOfNullEndStr(const char (&/*unused*/)[Size])
+{
+    return Size - 1;
+}
+
+static_assert(lengthOfNullEndStr("") == 0);
+static_assert(lengthOfNullEndStr("123") == 3);

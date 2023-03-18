@@ -321,7 +321,7 @@ bool WebServer::start()
     }
     LOG_INFO("Start WebServer");
 
-    if (!hasDir(root_path_))
+    if (!isDir(root_path_))
     {
         LOG_ERROR("Cannot find root dir(", root_path_, ") or root dir is not a directory");
         return false;

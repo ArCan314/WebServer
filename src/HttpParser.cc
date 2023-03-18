@@ -9,6 +9,7 @@
 
 #include "./HttpTypes.h"
 #include "./HttpParser.h"
+#include "./util/utils.h"
 #include "./Mime.h"
 
 static bool parseMethod(std::string_view req, int &pos, HttpMethod &method);
@@ -134,15 +135,6 @@ bool parseUrl(std::string_view req, int &out_pos, std::string_view &url_out, std
     out_pos = space_pos;
     return true;
 }
-
-template <std::size_t Size>
-static constexpr std::size_t lengthOfNullEndStr(const char (&/*unused*/)[Size])
-{
-    return Size - 1;
-}
-
-static_assert(lengthOfNullEndStr("") == 0);
-static_assert(lengthOfNullEndStr("123") == 3);
 
 bool parseVersion(std::string_view req, int &pos, HttpVersion &version)
 {
