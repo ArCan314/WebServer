@@ -9,6 +9,7 @@
 
 #include "./HttpParser.h"
 #include "./TimerQueue.h"
+#include "./HttpResponseBuilder.h"
 #include "./util/Noncopyable.h"
 
 class TcpSocket;
@@ -74,6 +75,7 @@ private:
     };
 
     HttpParser parser_;
+    HttpResponseBuilder response_builder_;
 
     std::unique_ptr<TcpSocket> socket_;
 
@@ -113,5 +115,5 @@ private:
     void handleMethodTrace();
     
     void reset();
-    void setDefaultErrorResponse(HttpStatusCode, const std::string = "");
+    void setDefaultErrorResponse(HttpStatusCode, const std::string = "", bool is_method_head = false);
 };

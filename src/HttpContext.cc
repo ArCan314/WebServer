@@ -29,15 +29,22 @@
 #include "./Mime.h"
 #include "./DefaultErrorPages.h"
 
-void HttpContext::setDefaultErrorResponse(HttpStatusCode error_status_code, const std::string body)
+void HttpContext::setDefaultErrorResponse(HttpStatusCode error_status_code, const std::string body, bool is_method_head)
 {
-    auto builder = HttpResponseBuilder(error_status_code);
+    auto builder = response_builder_.setStatusCode(error_status_code);
+
+    if (!is_method_head)
+        builder.setDefaultErrorPage(error_status_code);
+
     if (body.size())
         builder.setBody(getErrorPageWithExtraMsg(error_status_code, body));
-    builder.addHeader("Content-Length", std::to_string(builder.bodySize()))
+    builder.addHeader("Content-Length", lexicalCast(builder.bodySize()))
            .addHeader("Content-Type", getMime("html").data());
 
-    write_buffer_ = builder.build();
+    if (is_method_head)
+        write_buffer_ = builder.buildNoBodyOnce();
+    else
+        write_buffer_ = builder.buildOnce();
     write_index_ = 0;
     state_ = State::SEND_ERROR;
 }
@@ -306,30 +313,11 @@ void HttpContext::doWrite()
     }
 }
 
-template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
-static std::string lexicalCast(T num)
-{
-    std::string res;
-    if (num == 0)
-        res.push_back('0');
-    else
-    {
-        static constexpr std::size_t kBufferSize = 64;
-        std::array<char, kBufferSize> buffer;
-        int pos = std::size(buffer) - 1;
-        while (num)
-        {
-            buffer[pos--] = '0' + num % 10;
-            num /= 10;
-        }
-
-        res.append(&buffer[pos + 1], std::size(buffer) - pos - 1);
-    }
-    return res;
-}
 
 void HttpContext::handleMethodGetAndHead()
 {
+    assert(parser_.method() == HttpMethod::GET || parser_.method() == HttpMethod::HEAD);
+
     std::string full_url = std::string(root_dir_).append(parser_.url());
     std::array<char, PATH_MAX> resolved_path;
     if (parser_.url() == "/")
@@ -341,16 +329,17 @@ void HttpContext::handleMethodGetAndHead()
         if (save == ENOENT)
         {
             LOG_DEBUG("Cannot find file ", full_url);
-            setDefaultErrorResponse(HttpStatusCode::NOT_FOUND,
-                                    std::string("Cannot open file ")
-                                        .append(parser_.url())
-                                        .append(". ")
-                                        .append(logErrStr(save)));
+                setDefaultErrorResponse(HttpStatusCode::NOT_FOUND,
+                                        std::string("Cannot open file ")
+                                            .append(parser_.url())
+                                            .append(". ")
+                                            .append(logErrStr(save)),
+                                        parser_.method() == HttpMethod::HEAD);
         }
         else
         {
             LOG_WARNING("Unknown Error, errmsg = ", logErrStr(save));
-            setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR, logErrStr(save));
+            setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR, logErrStr(save), parser_.method() == HttpMethod::HEAD);
         }
         return;
     }
@@ -362,14 +351,14 @@ void HttpContext::handleMethodGetAndHead()
         !std::equal(root_dir_.begin(), root_dir_.end(), resolved_path_sv.begin(), resolved_path_sv.begin() + root_dir_.size()))
     {
         LOG_INFO("Requested url is not inside root_dir, url = ", resolved_path_sv, ", root_dir = ", root_dir_);
-        setDefaultErrorResponse(HttpStatusCode::FORBIDDEN);
+        setDefaultErrorResponse(HttpStatusCode::FORBIDDEN, "", parser_.method() == HttpMethod::HEAD);
         return;
     }
 
     if (!isRegularFile(resolved_path_sv))
     {
         LOG_DEBUG("Requested url is not regular file, full_url = ", resolved_path_sv);
-        setDefaultErrorResponse(HttpStatusCode::NOT_FOUND);
+        setDefaultErrorResponse(HttpStatusCode::NOT_FOUND, "", parser_.method() == HttpMethod::HEAD);
         return;
     }
 
@@ -380,7 +369,7 @@ void HttpContext::handleMethodGetAndHead()
             LOG_DEBUG("No read permission on file ", resolved_path_sv);
         else
             LOG_WARNING("Failed to call access with parameter(", resolved_path_sv, "), reason: ", logErrStr(errno));
-        setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
+        setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR, "", parser_.method() == HttpMethod::HEAD);
         return;
     }
 
@@ -388,7 +377,7 @@ void HttpContext::handleMethodGetAndHead()
     if (file_fd == -1)
     {
         LOG_WARNING("Failed to call open with parameter(", resolved_path_sv, "), reason: ", logErrStr(errno));
-        setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
+        setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR, "", parser_.method() == HttpMethod::HEAD);
         return;
     }
 
@@ -397,7 +386,7 @@ void HttpContext::handleMethodGetAndHead()
     if (fstat(file_fd, &file_stat) == -1)
     {
         LOG_WARNING("Failed to call fstat, reason: ", logErrStr(errno));
-        setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR);
+        setDefaultErrorResponse(HttpStatusCode::INTERNAL_SERVER_ERROR, "", parser_.method() == HttpMethod::HEAD);
         return;
     }
 
@@ -407,13 +396,12 @@ void HttpContext::handleMethodGetAndHead()
         write_file_offset_ = 0;
     }
 
-    auto builder = HttpResponseBuilder()
-                       .addHeader("Content-Length", lexicalCast(file_stat.st_size))
-                       .addHeader("Content-Type", parser_.mime().data());
+    auto builder = response_builder_.addHeader("Content-Length", lexicalCast(file_stat.st_size))
+                                    .addHeader("Content-Type", parser_.mime().data());
     if (parser_.isKeepAlive())
         builder.addHeader("Connection", "keep-alive");
 
-    write_buffer_ = builder.build();
+    write_buffer_ = builder.buildOnce();
     write_index_ = 0;
     state_ = State::SEND;
     // LOG_DEBUG("Set response header: ", write_buffer_);
@@ -421,13 +409,12 @@ void HttpContext::handleMethodGetAndHead()
 
 void HttpContext::handleMethodTrace()
 {
-    auto builder = HttpResponseBuilder()
-                       .addHeader("Content-Type", "message/http")
-                       .addHeader("Content-Length", std::to_string(parser_.headLength()))
-                       .addHeader("Connection", "close")
-                       .setBody(read_buffer_.substr(0, parser_.headLength()));
+    auto builder = response_builder_.addHeader("Content-Type", "message/http")
+                                    .addHeader("Content-Length", std::to_string(parser_.headLength()))
+                                    .addHeader("Connection", "close")
+                                    .setBody(read_buffer_.substr(0, parser_.headLength()));
 
-    write_buffer_ = builder.build();
+    write_buffer_ = builder.buildOnce();
     write_index_ = 0;
     state_ = State::SEND;
 }
@@ -464,6 +451,8 @@ void HttpContext::reset()
 
     body_buffer_.clear();
     to_read_body_bytes_ = 0;
+
+    response_builder_.clear();
 
     write_buffer_.clear();
     write_index_ = 0;

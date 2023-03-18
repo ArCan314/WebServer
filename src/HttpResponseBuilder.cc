@@ -46,6 +46,13 @@ HttpResponseBuilder &HttpResponseBuilder::setStatusCode(HttpStatusCode status_co
     return *this;
 }
 
+HttpResponseBuilder &HttpResponseBuilder::setDefaultErrorPage(HttpStatusCode status_code) noexcept
+{
+    if (static_cast<unsigned>(status_code) >= 400u)
+        body_ = getDefaultErrorPage(status_code);
+    return *this;
+}
+
 HttpResponseBuilder &HttpResponseBuilder::setReason(std::string reason) noexcept
 {
     reason_ = std::move(reason);
@@ -81,6 +88,20 @@ static inline void pushStatusCode(std::string &str, HttpStatusCode code)
 
 std::string HttpResponseBuilder::build()
 {
+    auto res = buildNoBody();
+    res.append(body_);
+    return res;
+}
+
+std::string HttpResponseBuilder::buildOnce()
+{
+    std::string res = build();
+    clear();
+    return res;
+}
+
+std::string HttpResponseBuilder::buildNoBody()
+{
     // status-line = HTTP-version SP status-code SP reason-phrase CRLF #rfc7230 sec:3.1.2
     std::string res("HTTP/");
     res.reserve(headers_len_ + 25);
@@ -106,6 +127,22 @@ std::string HttpResponseBuilder::build()
     }
 
     res.append("\r\n", 2);
-    res.append(body_);
     return res;
+}
+
+std::string HttpResponseBuilder::buildNoBodyOnce()
+{
+    std::string res = buildNoBody();
+    clear();
+    return res;
+}
+
+void HttpResponseBuilder::clear()
+{
+    version_ = HttpVersion::HTTP11;
+    status_code_ = HttpStatusCode::OK;
+    reason_.clear();
+    body_.clear();
+    headers_.clear();
+    headers_len_ = 0;
 }

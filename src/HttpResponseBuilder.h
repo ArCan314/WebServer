@@ -20,9 +20,14 @@ public:
     HttpResponseBuilder(HttpStatusCode status = HttpStatusCode::OK, HttpVersion version = HttpVersion::HTTP11) noexcept;
     HttpResponseBuilder &setVersion(HttpVersion version) noexcept;
     HttpResponseBuilder &setStatusCode(HttpStatusCode status) noexcept;
+    HttpResponseBuilder &setDefaultErrorPage(HttpStatusCode status_code) noexcept;
     HttpResponseBuilder &setReason(std::string reason) noexcept;
     HttpResponseBuilder &addHeader(std::string name, std::string value);
     HttpResponseBuilder &setBody(std::string body);
     auto bodySize() const noexcept { return body_.size(); }
     std::string build();
+    std::string buildOnce();
+    std::string buildNoBody();
+    std::string buildNoBodyOnce();
+    void clear();
 };

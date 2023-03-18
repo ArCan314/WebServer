@@ -259,7 +259,7 @@ void WebServer::workerLoop(int epfd)
             const auto &event = events[i];
             if (event.events & EPOLLRDHUP || event.events & EPOLLHUP)
             {
-                LOG_INFO("Event EPOLLRDHUP or EPOLLHUP raised on fd ", event.data.fd);
+                LOG_DEBUG("Event EPOLLRDHUP or EPOLLHUP raised on fd ", event.data.fd);
                 if (eraseContext(event.data.fd))
                     epollDel(epfd, event.data.fd);
             }

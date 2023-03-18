@@ -80,3 +80,25 @@ static constexpr std::size_t lengthOfNullEndStr(const char (&/*unused*/)[Size])
 
 static_assert(lengthOfNullEndStr("") == 0);
 static_assert(lengthOfNullEndStr("123") == 3);
+
+template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
+std::string lexicalCast(T num)
+{
+    std::string res;
+    if (num == 0)
+        res.push_back('0');
+    else
+    {
+        static constexpr std::size_t kBufferSize = 64;
+        std::array<char, kBufferSize> buffer;
+        int pos = std::size(buffer) - 1;
+        while (num)
+        {
+            buffer[pos--] = '0' + num % 10;
+            num /= 10;
+        }
+
+        res.append(&buffer[pos + 1], std::size(buffer) - pos - 1);
+    }
+    return res;
+}
