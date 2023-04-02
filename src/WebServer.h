@@ -78,7 +78,7 @@ private:
 
     std::vector<FdHolder> worker_epfds_; 
 
-    std::string log_path_{"./server.log"};
+    std::string log_path_;
     LogLevel log_level_{LogLevel::WARNING};
 
     std::string root_path_{"./root"};

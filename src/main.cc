@@ -13,7 +13,6 @@ int main()
 
     WebServer server{};
     server.addListenAddress("0.0.0.0", 12345, 3)
-        .setLogPath("./server.log")
         .setLogLevel(LogLevel::INFO)
         .setRootPath("./root")
         .setWorkerThreadNum(3)

@@ -35,8 +35,20 @@ private:
     std::ofstream log_stream_;
 
     void work();
+
 public:
-    bool init(std::string log_path, LogLevel level);
+    bool start();
+    Logger &setLevel(LogLevel level) noexcept
+    {
+        level_ = level;
+        return *this;
+    }
+    Logger &setPath(std::string path) noexcept
+    {
+        log_path_ = std::move(path);
+        return *this;
+    }
+
     void log(const std::string &msg, LogLevel level, const char *file, int line);
     void log(const std::string &msg, LogLevel level, const char *file, int line, const char *func);
     LogLevel getLevel() const noexcept { return level_; }

@@ -313,9 +313,9 @@ void WebServer::workerLoop(int epfd)
 
 bool WebServer::start()
 {
-    if (!Logger::instance().init(log_path_, log_level_))
+    if (!Logger::instance().setLevel(log_level_).setPath(log_path_).start())
     {
-        LOG_STDERR("Failed to initialize logger with root_dir: ", log_path_, " and log_level: ", getLogLevelStr(log_level_));
+        LOG_STDERR("Failed to initialize logger with log_path: ", log_path_, " and log_level: ", getLogLevelStr(log_level_));
         return false;
     }
     LOG_INFO("Start WebServer");
